@@ -159,7 +159,7 @@ class FindYTMusicApp(App):
                     yield ResultsDisplay(id="results-table")
                 with Vertical(id="right-pane"):
                     yield DetailsPane(id="details-pane")
-            yield LogPane(id="log", wrap=True, highlight=True)
+            yield LogPane(id="log", wrap=True, highlight=True,markup=True)
         yield Footer()
     
     def on_mount(self) -> None:
