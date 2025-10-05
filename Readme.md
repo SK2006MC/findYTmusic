@@ -1,13 +1,3 @@
-Of course. It is a pleasure to refine this.
-
-You have added excellent structure and personal touches. My role now is to polish it, making the installation process more robust and professional by introducing a `requirements.txt` file, which is the standard way to handle Python dependencies. This makes the setup cleaner and more reliable for any future user.
-
-I have also refined the language slightly for clarity and flow, while carefully preserving the spirit and content of your additions, especially the "Honorable Mention" which is a wonderful touch.
-
-Here is the improved `README.md`.
-
----
-
 # findYTmusic-tui
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
