@@ -1,4 +1,5 @@
 import sys
+import asyncio
 from dataclasses import dataclass
 
 from textual.app import App, ComposeResult
@@ -52,7 +53,6 @@ def fetch_music_data(query: str) -> list[SearchResult]:
             ))
         return results
     except Exception:
-        # In a real app, you might want to log the error here
         return []
 
 # --- Custom UI Widgets ---
@@ -78,7 +78,6 @@ class SearchControls(Static):
         self.post_search_message()
 
     def post_search_message(self) -> None:
-        """Validates input and posts the SearchRequested message."""
         query = self.query_one(Input).value.strip()
         if query:
             self.post_message(self.SearchRequested(query))
@@ -118,7 +117,6 @@ class FindYTMusicApp(App):
     CSS_PATH = "find_ytmusic.css"
 
     def compose(self) -> ComposeResult:
-        """Compose the layout using the custom widgets."""
         yield Header()
         with Container(id="main-container"):
             yield SearchControls()
@@ -127,29 +125,26 @@ class FindYTMusicApp(App):
         yield Footer()
     
     def on_mount(self) -> None:
-        """Focus the input on application start."""
         self.query_one(SearchControls).query_one(Input).focus()
 
     def on_search_controls_search_requested(self, message: SearchControls.SearchRequested) -> None:
-        """
-        Handles the custom message from the SearchControls widget.
-        This is the trigger for running the background search.
-        """
         status_bar = self.query_one(StatusBar)
         status_bar.update_status(f"Searching for '{message.query}'...")
         self.workers.cancel_group(self, "search_worker")
         self.run_worker(
-            self.perform_search,
-            message.query,
+            self.perform_search(message.query),
             group="search_worker"
         )
 
-    def perform_search(self, query: str) -> None:
-        """Worker method to fetch data and update UI safely."""
-        results = fetch_music_data(query)
+    # --- THIS IS THE CORRECTED PART ---
+    async def perform_search(self, query: str) -> None:
+        """Async worker method to fetch data and update UI safely."""
+        results = await asyncio.to_thread(fetch_music_data, query)
         
-        # To update the UI from the worker, we must schedule it on the main thread
-        self.call_from_thread(self.update_ui_with_results, results, query)
+        # In an async worker, you can call methods directly.
+        # Textual ensures this runs on the main thread for you.
+        self.update_ui_with_results(results, query)
+    # --- END OF CORRECTION ---
 
     def update_ui_with_results(self, results: list[SearchResult], query: str) -> None:
         """Safely updates UI components from the main thread."""
