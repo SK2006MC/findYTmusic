@@ -57,13 +57,6 @@ Before installing the application, ensure you have these system-level tools:
     ```
 
 3.  **Install Dependencies from `requirements.txt`**
-    Create a file named `requirements.txt` and add the following lines:
-    ```
-    textual
-    ytmusicapi
-    pyperclip
-    ```
-    Now, install them all with a single command:
     ```bash
     pip install -r requirements.txt
     ```
