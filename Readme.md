@@ -4,8 +4,8 @@ A thoughtful, terminal-based user interface for searching and downloading music 
 
 This tool is designed for those who appreciate the power and elegance of the command line. It provides a clean, fast, and keyboard-driven environment to discover music and seamlessly acquire it through your favorite command-line downloader.
 
-![Screen shot](./s1 "Screen shot")
-![Screen shot2](./s2 "Screen shot2")
+![Screen shot](./s1.jpg "Screen shot")
+![Screen shot2](./s2.jpg "Screen shot2")
 
 ## ✨ Features
 
