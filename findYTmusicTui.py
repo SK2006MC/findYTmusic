@@ -1,138 +1,166 @@
 import sys
-import argparse
-# No special worker imports are needed for this method
+from dataclasses import dataclass
+
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Input, Button, DataTable, Static, Label
 from textual.containers import Container, Vertical
+from textual.message import Message
 from textual.reactive import reactive
+from textual.widgets import (Button, DataTable, Footer, Header, Input, Label,
+                             Static)
 from ytmusicapi import YTMusic
 
-# Initialize YTMusic globally
-ytmusic = YTMusic()
+# --- Constants and Data Models ---
+
+SEARCH_RESULT_LIMIT = 20
+
+@dataclass
+class SearchResult:
+    """A data class to hold a single search result."""
+    title: str
+    artist: str
+    duration: str
+    link: str
+
+# --- API Interaction Logic (Decoupled from UI) ---
+
+def fetch_music_data(query: str) -> list[SearchResult]:
+    """
+    Performs the YouTube Music search and returns structured data.
+    This function is UI-agnostic.
+    """
+    try:
+        ytmusic = YTMusic()
+        search_items = ytmusic.search(
+            query=query, filter="songs", limit=SEARCH_RESULT_LIMIT
+        )
+        
+        results = []
+        for item in search_items:
+            duration_seconds = item.get("duration_seconds")
+            duration_formatted = "N/A"
+            if duration_seconds is not None:
+                minutes, seconds = divmod(duration_seconds, 60)
+                duration_formatted = f"{minutes:02d}:{seconds:02d}"
+
+            results.append(SearchResult(
+                title=item.get("title", "N/A"),
+                artist=", ".join(
+                    [artist["name"] for artist in item.get("artists", [])]
+                ) or "N/A",
+                duration=duration_formatted,
+                link=f"https://music.youtube.com/watch?v={item['videoId']}"
+            ))
+        return results
+    except Exception:
+        # In a real app, you might want to log the error here
+        return []
+
+# --- Custom UI Widgets ---
+
+class SearchControls(Static):
+    """A widget containing the search input and button."""
+
+    class SearchRequested(Message):
+        """A message sent when the user initiates a search."""
+        def __init__(self, query: str) -> None:
+            self.query = query
+            super().__init__()
+
+    def compose(self) -> ComposeResult:
+        yield Label("Enter your search terms:")
+        yield Input(placeholder="e.g., Daft Punk - Get Lucky", id="search-input")
+        yield Button("Search", id="search-button", variant="primary")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.post_search_message()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.post_search_message()
+
+    def post_search_message(self) -> None:
+        """Validates input and posts the SearchRequested message."""
+        query = self.query_one(Input).value.strip()
+        if query:
+            self.post_message(self.SearchRequested(query))
+
+class StatusBar(Static):
+    """A simple status bar widget."""
+    message = reactive("Ready.")
+
+    def render(self) -> str:
+        return self.message
+
+    def update_status(self, text: str) -> None:
+        self.message = text
+
+class ResultsDisplay(DataTable):
+    """A DataTable specialized for displaying search results."""
+    def on_mount(self) -> None:
+        self.add_columns("Title", "Artist", "Duration", "Link")
+
+    def update_results(self, results: list[SearchResult]) -> None:
+        self.clear()
+        if results:
+            self.add_rows(
+                [(r.title, r.artist, r.duration, r.link) for r in results]
+            )
+        self.focus()
+
+# --- Main Application Class ---
 
 class FindYTMusicApp(App):
-    """A Textual app to search YouTube Music."""
+    """A Textual app to search YouTube Music, now acting as a coordinator."""
 
     BINDINGS = [
         ("d", "toggle_dark", "Toggle dark mode"),
-        ("q", "quit_app", "Quit"),
+        ("q", "quit", "Quit"),
     ]
-
     CSS_PATH = "find_ytmusic.css"
 
-    search_results = reactive([])
-    status_message = reactive("Ready.")
-
     def compose(self) -> ComposeResult:
-        """Create child widgets for the app."""
+        """Compose the layout using the custom widgets."""
         yield Header()
         with Container(id="main-container"):
-            with Vertical(id="search-area"):
-                yield Label("Enter your search terms:")
-                yield Input(placeholder="e.g., Bohemian Rhapsody Queen", id="search-input")
-                yield Button("Search", id="search-button", variant="primary")
-            
-            yield Static(id="status", classes="message")
-            
-            yield DataTable(id="results-table", zebra_stripes=True)
-
+            yield SearchControls()
+            yield StatusBar(id="status")
+            yield ResultsDisplay(id="results-table")
         yield Footer()
-
+    
     def on_mount(self) -> None:
-        """Called when the app is mounted."""
-        self.query_one(DataTable).add_columns("Title", "Artist", "Duration", "Link")
-        self.query_one("#search-input").focus()
+        """Focus the input on application start."""
+        self.query_one(SearchControls).query_one(Input).focus()
 
-    # This is now a standard method that will be run in the background
-    def run_ytmusic_search(self, query: str, limit: int = 10):
+    def on_search_controls_search_requested(self, message: SearchControls.SearchRequested) -> None:
         """
-        This function runs in a background thread via self.run_worker.
-        It performs the search and prepares the data.
+        Handles the custom message from the SearchControls widget.
+        This is the trigger for running the background search.
         """
-        # To update the UI from this background thread, we must use self.call_from_thread
-        self.call_from_thread(self.set_status, f"Searching for '{query}'...")
-        try:
-            search_items = ytmusic.search(query=query, filter="songs", limit=limit)
-            
-            results_data = []
-            for item in search_items:
-                title = item.get("title", "N/A")
-                artists = ", ".join([artist["name"] for artist in item.get("artists", [])]) if item.get("artists") else "N/A"
-                link = f"https://music.youtube.com/watch?v={item['videoId']}"
-                
-                duration_seconds = item.get("duration_seconds")
-                duration_formatted = "N/A"
-                if duration_seconds is not None:
-                    minutes = duration_seconds // 60
-                    seconds = duration_seconds % 60
-                    duration_formatted = f"{minutes:02d}:{seconds:02d}"
+        status_bar = self.query_one(StatusBar)
+        status_bar.update_status(f"Searching for '{message.query}'...")
+        self.workers.cancel_group(self, "search_worker")
+        self.run_worker(
+            self.perform_search,
+            message.query,
+            group="search_worker"
+        )
 
-                results_data.append((title, artists, duration_formatted, link))
-            
-            # Safely schedule the UI update on the main thread
-            self.call_from_thread(self.update_results, results_data, query)
+    def perform_search(self, query: str) -> None:
+        """Worker method to fetch data and update UI safely."""
+        results = fetch_music_data(query)
+        
+        # To update the UI from the worker, we must schedule it on the main thread
+        self.call_from_thread(self.update_ui_with_results, results, query)
 
-        except Exception as e:
-            # Safely schedule the error message update on the main thread
-            self.call_from_thread(self.set_status, f"[red]Error during search: {e}[/red]")
-            self.call_from_thread(setattr, self, "search_results", [])
+    def update_ui_with_results(self, results: list[SearchResult], query: str) -> None:
+        """Safely updates UI components from the main thread."""
+        status_bar = self.query_one(StatusBar)
+        results_table = self.query_one(ResultsDisplay)
 
-    def set_status(self, message: str) -> None:
-        """Helper method to safely set the status_message reactive variable."""
-        self.status_message = message
-
-    def update_results(self, results: list, query: str) -> None:
-        """Helper method to safely update results and status."""
-        self.search_results = results
+        results_table.update_results(results)
         if not results:
-            self.status_message = "No music found for your search terms."
+            status_bar.update_status("No music found for your search terms.")
         else:
-            self.status_message = f"Found {len(results)} results for '{query}'."
-
-    def watch_search_results(self, results_data: list) -> None:
-        """Called when self.search_results changes."""
-        table = self.query_one(DataTable)
-        table.clear()
-        if results_data:
-            table.add_rows(results_data)
-        table.focus()
-
-    def watch_status_message(self, message: str) -> None:
-        """Called when self.status_message changes."""
-        self.query_one("#status", Static).update(message)
-
-    def action_quit_app(self) -> None:
-        self.exit()
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "search-button":
-            self.trigger_search()
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id == "search-input":
-            self.trigger_search()
-
-    def trigger_search(self) -> None:
-        """Initiate the search by creating a background worker."""
-        query = self.query_one("#search-input", Input).value.strip()
-        if query:
-            # Cancel any previous searches to avoid race conditions
-            self.workers.cancel_group(self, "search_worker")
-            
-            # --- THIS IS THE CORRECTED PART ---
-            # The 'query' argument is now passed positionally.
-            # The optional arguments 'group' and 'name' are passed with keywords.
-            self.run_worker(
-                self.run_ytmusic_search,
-                query,  # Positional argument for run_ytmusic_search
-                group="search_worker",
-                name=f"Searching for {query}"
-            )
-            # --- END OF CORRECTION ---
-            
-        else:
-            self.status_message = "[orange3]Please enter search terms.[/orange3]"
-            self.query_one("#search-input").focus()
+            status_bar.update_status(f"Found {len(results)} results for '{query}'.")
 
 
 if __name__ == "__main__":
