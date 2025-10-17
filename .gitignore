@@ -3,3 +3,5 @@ t
 YouTube Music
 find_ytmusic_tui
 find_ytmusic_tui.bin
+ytmusic_library.db
+__pycache__
