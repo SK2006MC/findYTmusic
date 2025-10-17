@@ -10,17 +10,20 @@ from ytmusicapi import YTMusic
 from models import SearchResult
 
 class DatabaseService:
-    """A service to manage all SQLite database interactions."""
+    """
+    A thread-safe service to manage all SQLite database interactions.
+    Connections are created per-method to ensure thread safety.
+    """
     def __init__(self, db_name: str):
         self.db_name = db_name
-        self.conn = sqlite3.connect(db_name)
-        self.conn.row_factory = sqlite3.Row
+        # The connection is no longer created here.
         self.create_table()
 
     def create_table(self):
         """Creates the songs table if it doesn't exist."""
-        with self.conn:
-            self.conn.execute("""
+        # This method creates its own connection to run the initial setup.
+        with sqlite3.connect(self.db_name) as conn:
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS songs (
                     video_id TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
@@ -38,8 +41,10 @@ class DatabaseService:
             (r.video_id, r.title, r.artist, r.album_name, r.duration, r.link, r.is_explicit)
             for r in results
         ]
-        with self.conn:
-            self.conn.executemany("""
+        # A new connection is created here, used, and then automatically closed.
+        # This is safe to call from any thread.
+        with sqlite3.connect(self.db_name) as conn:
+            conn.executemany("""
                 INSERT OR IGNORE INTO songs 
                 (video_id, title, artist, album_name, duration, link, is_explicit) 
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -47,14 +52,15 @@ class DatabaseService:
 
     def load_all_songs(self) -> List[SearchResult]:
         """Loads all songs from the database, sorted for display."""
-        with self.conn:
-            cursor = self.conn.execute(
+        # This method also creates its own connection.
+        with sqlite3.connect(self.db_name) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
                 "SELECT * FROM songs ORDER BY artist, album_name, title"
             )
             return [SearchResult(**row) for row in cursor.fetchall()]
 
-    def close(self):
-        self.conn.close()
+    # The close() method is no longer needed, as connections are managed by 'with'.
 
 
 class Downloader:
@@ -96,6 +102,7 @@ class MusicSearchService:
             
             results = list(unique_results.values())
             if results:
+                # This call is now thread-safe thanks to the changes in DatabaseService
                 self.db_service.save_results(results)
             return results, None
         except Exception:

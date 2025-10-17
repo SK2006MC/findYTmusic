@@ -130,7 +130,4 @@ if __name__ == "__main__":
     
     app = FindYTMusicApp(search_service, downloader_service, db_service, app_config)
     
-    try:
-        app.run()
-    finally:
-        db_service.close()
+    app.run()
